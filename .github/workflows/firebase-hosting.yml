@@ -1,0 +1,44 @@
+name: Deploy Firebase Hosting
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "src/**"
+      - "public/**"
+      - "index.html"
+      - "package.json"
+      - "vite.config.js"
+
+jobs:
+  deploy_hosting:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Build Web App
+        run: npm run build
+
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
+
+      - name: Deploy to Firebase Hosting
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          echo "$FIREBASE_SERVICE_ACCOUNT" > /tmp/service-account.json
+          export GOOGLE_APPLICATION_CREDENTIALS=/tmp/service-account.json
+          firebase deploy --only hosting --project home-energy-report-ba33d --non-interactive
+
+      - name: Cleanup
+        if: always()
+        run: rm -f /tmp/service-account.json
