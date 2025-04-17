@@ -5,84 +5,203 @@
         Energy Audit Report
       </v-card-title>
 
-      <v-card-subtitle class="text-center pb-0" v-if="propertyAddress">
-        {{ propertyAddress }}
+      <v-card-subtitle
+        class="text-center pb-0"
+        v-if="property?.mapsData?.address"
+      >
+        {{ property.mapsData.address }}
       </v-card-subtitle>
 
-      <!-- Property Summary -->
-      <v-card-text>
-        <h2 class="text-h5 mb-4">Property Summary</h2>
-        <v-row>
-          <v-col cols="12" sm="6" md="3">
-            <div class="text-subtitle-1">Year Built</div>
-            <div class="text-h6">{{ propertyData.yearBuilt }}</div>
-          </v-col>
-          <v-col cols="12" sm="6" md="3">
-            <div class="text-subtitle-1">Square Footage</div>
-            <div class="text-h6">{{ propertyData.squareFootage }}</div>
-          </v-col>
-          <v-col cols="12" sm="6" md="3">
-            <div class="text-subtitle-1">Bedrooms</div>
-            <div class="text-h6">{{ propertyData.bedrooms }}</div>
-          </v-col>
-          <v-col cols="12" sm="6" md="3">
-            <div class="text-subtitle-1">Bathrooms</div>
-            <div class="text-h6">{{ propertyData.bathrooms }}</div>
-          </v-col>
-        </v-row>
-      </v-card-text>
+      <!-- Loading State -->
+      <div v-if="loading" class="d-flex justify-center align-center pa-8">
+        <v-progress-circular
+          indeterminate
+          color="primary"
+        ></v-progress-circular>
+      </div>
 
-      <!-- Energy Use Breakdown -->
-      <v-card-text>
-        <h2 class="text-h5 mb-4">Energy Use Breakdown</h2>
-        <div style="height: 300px">
-          <Pie :data="chartData" :options="chartOptions" />
-        </div>
-      </v-card-text>
+      <!-- Error State -->
+      <div v-else-if="error" class="pa-4 text-center">
+        <v-alert type="error" class="mb-4">
+          {{ error }}
+        </v-alert>
+        <v-btn color="primary" @click="retryDatafiniti">
+          Retry Loading Data
+        </v-btn>
+      </div>
 
-      <!-- Top Recommendations -->
-      <v-card-text>
-        <h2 class="text-h5 mb-4">Top 3 Recommendations</h2>
-        <v-row>
-          <v-col
-            v-for="(rec, index) in propertyData.recommendations"
-            :key="index"
-            cols="12"
-            md="4"
-          >
-            <v-card variant="outlined" class="h-100">
-              <v-card-title class="text-h6">{{ rec.title }}</v-card-title>
-              <v-card-text>
-                <div class="mb-2">Annual Savings: ${{ rec.savings }}</div>
-                <div>Estimated Cost: ${{ rec.cost }}</div>
-              </v-card-text>
-            </v-card>
-          </v-col>
-        </v-row>
-      </v-card-text>
+      <template v-else-if="property">
+        <!-- Property Summary -->
+        <v-card-text>
+          <h2 class="text-h5 mb-4">Property Summary</h2>
+          <v-row>
+            <v-col cols="12" sm="6" md="3">
+              <div class="text-subtitle-1">Year Built</div>
+              <div class="text-h6">
+                {{ property.propertyData?.yearBuilt || "N/A" }}
+              </div>
+            </v-col>
+            <v-col cols="12" sm="6" md="3">
+              <div class="text-subtitle-1">Living Area</div>
+              <div class="text-h6">
+                {{
+                  property.propertyData?.floorSizeSqFt
+                    ? `${property.propertyData.floorSizeSqFt.toLocaleString()} sq ft`
+                    : "N/A"
+                }}
+              </div>
+            </v-col>
+            <v-col cols="12" sm="6" md="3">
+              <div class="text-subtitle-1">Lot Size</div>
+              <div class="text-h6">
+                {{
+                  property.propertyData?.lotSizeSqFt
+                    ? `${property.propertyData.lotSizeSqFt.toLocaleString()} sq ft`
+                    : "N/A"
+                }}
+              </div>
+            </v-col>
+            <v-col cols="12" sm="6" md="3">
+              <div class="text-subtitle-1">Property Use</div>
+              <div class="text-h6">
+                {{ property.propertyData?.propertyUse || "N/A" }}
+              </div>
+            </v-col>
+          </v-row>
+          <v-row class="mt-4">
+            <v-col cols="12" sm="6" md="3">
+              <div class="text-subtitle-1">Bedrooms</div>
+              <div class="text-h6">
+                {{ property.propertyData?.numBedrooms || "N/A" }}
+              </div>
+            </v-col>
+            <v-col cols="12" sm="6" md="3">
+              <div class="text-subtitle-1">Bathrooms</div>
+              <div class="text-h6">
+                {{ property.propertyData?.numBathrooms || "N/A" }}
+              </div>
+            </v-col>
+            <v-col cols="12" sm="6" md="3">
+              <div class="text-subtitle-1">Parking Spaces</div>
+              <div class="text-h6">
+                {{ property.propertyData?.totalParkingSpaces || "N/A" }}
+              </div>
+            </v-col>
+          </v-row>
+        </v-card-text>
 
-      <!-- Financial Summary -->
-      <v-card-text>
-        <h2 class="text-h5 mb-4">Financial Summary</h2>
-        <v-row>
-          <v-col cols="12" sm="6">
-            <v-card variant="outlined">
-              <v-card-title>Estimated Annual Utility Spend</v-card-title>
-              <v-card-text class="text-h5"
-                >${{ propertyData.annualUtilitySpend }}</v-card-text
-              >
-            </v-card>
-          </v-col>
-          <v-col cols="12" sm="6">
-            <v-card variant="outlined">
-              <v-card-title>Annual Savings Potential</v-card-title>
-              <v-card-text class="text-h5"
-                >${{ propertyData.savingsPotential }}</v-card-text
-              >
-            </v-card>
-          </v-col>
-        </v-row>
-      </v-card-text>
+        <!-- Appliances -->
+        <v-card-text v-if="property.propertyData?.appliances?.length">
+          <h2 class="text-h5 mb-4">Appliances</h2>
+          <v-chip-group>
+            <v-chip
+              v-for="appliance in property.propertyData.appliances"
+              :key="appliance"
+              color="primary"
+              variant="outlined"
+            >
+              {{ appliance }}
+            </v-chip>
+          </v-chip-group>
+        </v-card-text>
+
+        <!-- Energy Features -->
+        <v-card-text>
+          <h2 class="text-h5 mb-4">Energy Features</h2>
+          <v-row>
+            <v-col cols="12" sm="6" md="4">
+              <v-card variant="outlined" class="h-100">
+                <v-card-title>Heating & Cooling</v-card-title>
+                <v-card-text>
+                  <div>
+                    Heating: {{ property.propertyData?.heating || "N/A" }}
+                  </div>
+                  <div>
+                    Cooling: {{ property.propertyData?.cooling || "N/A" }}
+                  </div>
+                </v-card-text>
+              </v-card>
+            </v-col>
+            <v-col cols="12" sm="6" md="4">
+              <v-card variant="outlined" class="h-100">
+                <v-card-title>Construction</v-card-title>
+                <v-card-text>
+                  <div>
+                    Type: {{ property.propertyData?.construction || "N/A" }}
+                  </div>
+                  <div>
+                    Roof: {{ property.propertyData?.roofType || "N/A" }}
+                  </div>
+                </v-card-text>
+              </v-card>
+            </v-col>
+            <v-col cols="12" sm="6" md="4">
+              <v-card variant="outlined" class="h-100">
+                <v-card-title>Additional Features</v-card-title>
+                <v-card-text>
+                  <div>
+                    Solar Installed:
+                    {{ property.propertyData?.solarInstalled ? "Yes" : "No" }}
+                  </div>
+                  <div>
+                    Pool: {{ property.propertyData?.hasPool ? "Yes" : "No" }}
+                  </div>
+                </v-card-text>
+              </v-card>
+            </v-col>
+          </v-row>
+        </v-card-text>
+
+        <!-- Neighborhood Data -->
+        <v-card-text v-if="property.neighborhoodData">
+          <h2 class="text-h5 mb-4">Neighborhood Information</h2>
+          <v-row>
+            <v-col cols="12" sm="6">
+              <div class="text-subtitle-1">Neighborhood</div>
+              <div class="text-h6">
+                {{ property.neighborhoodData.neighborhood || "N/A" }}
+              </div>
+            </v-col>
+            <v-col cols="12" sm="6">
+              <div class="text-subtitle-1">County</div>
+              <div class="text-h6">
+                {{ property.neighborhoodData.county || "N/A" }}
+              </div>
+            </v-col>
+          </v-row>
+        </v-card-text>
+
+        <!-- Risk Assessment -->
+        <v-card-text v-if="property.riskData">
+          <h2 class="text-h5 mb-4">Risk Assessment</h2>
+          <v-row>
+            <v-col cols="12" sm="6" md="4">
+              <v-card variant="outlined" class="h-100">
+                <v-card-title>Flood Risk</v-card-title>
+                <v-card-text class="text-capitalize">
+                  {{ property.riskData.floodRisk || "N/A" }}
+                </v-card-text>
+              </v-card>
+            </v-col>
+            <v-col cols="12" sm="6" md="4">
+              <v-card variant="outlined" class="h-100">
+                <v-card-title>Earthquake Risk</v-card-title>
+                <v-card-text class="text-capitalize">
+                  {{ property.riskData.earthquakeRisk || "N/A" }}
+                </v-card-text>
+              </v-card>
+            </v-col>
+            <v-col cols="12" sm="6" md="4">
+              <v-card variant="outlined" class="h-100">
+                <v-card-title>Tornado Risk</v-card-title>
+                <v-card-text class="text-capitalize">
+                  {{ property.riskData.tornadoRisk || "N/A" }}
+                </v-card-text>
+              </v-card>
+            </v-col>
+          </v-row>
+        </v-card-text>
+      </template>
 
       <v-card-actions class="pa-4">
         <v-btn block color="primary" size="large" @click="goBack">
@@ -95,16 +214,14 @@
 
 <script setup>
 import { ref, onMounted } from "vue";
-import { Pie } from "vue-chartjs";
-import { Chart as ChartJS, ArcElement, Tooltip, Legend } from "chart.js";
 import { useRouter } from "vue-router";
 import { getProperty } from "../services/propertiesService";
 import { logAnalyticsEvent } from "../firebase";
 
-ChartJS.register(ArcElement, Tooltip, Legend);
-
 const router = useRouter();
-const propertyAddress = ref("");
+const property = ref(null);
+const loading = ref(true);
+const error = ref(null);
 
 const props = defineProps({
   id: {
@@ -113,57 +230,70 @@ const props = defineProps({
   },
 });
 
-onMounted(async () => {
+const fetchDatafinitiData = async () => {
+  const response = await fetch(
+    `${import.meta.env.VITE_FIREBASE_FUNCTIONS_URL}/getPropertyData`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        propertyId: props.id,
+        address: property.value.mapsData.address,
+        city: property.value.mapsData.city,
+        state: property.value.mapsData.state,
+        zip: property.value.mapsData.zip,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch property details");
+  }
+
+  // Get the updated property data after Datafiniti data is stored
+  const updatedData = await getProperty(props.id);
+  property.value = updatedData;
+
+  if (updatedData.datafinitiError) {
+    throw new Error(updatedData.datafinitiError);
+  }
+};
+
+const retryDatafiniti = async () => {
+  error.value = null;
+  loading.value = true;
   try {
-    const property = await getProperty(props.id);
-    propertyAddress.value = property.address;
-  } catch (error) {
-    console.error("Error:", error);
-    router.push("/");
+    await fetchDatafinitiData();
+  } catch (err) {
+    error.value = err.message;
+  } finally {
+    loading.value = false;
+  }
+};
+
+onMounted(async () => {
+  loading.value = true;
+  error.value = null;
+  try {
+    // First get the initial property data
+    const data = await getProperty(props.id);
+    property.value = data;
+
+    // Check if we need to fetch Datafiniti data
+    if (!data.datafinitiFetchedAt) {
+      await fetchDatafinitiData();
+    } else if (data.datafinitiError) {
+      error.value = data.datafinitiError;
+    }
+  } catch (err) {
+    console.error("Error:", err);
+    error.value = err.message;
+  } finally {
+    loading.value = false;
   }
 });
-
-// Mock data
-const propertyData = {
-  yearBuilt: 1985,
-  squareFootage: 2400,
-  bedrooms: 4,
-  bathrooms: 2.5,
-  annualUtilitySpend: 3600,
-  savingsPotential: 1200,
-  recommendations: [
-    {
-      title: "Upgrade Insulation",
-      savings: 500,
-      cost: 2000,
-    },
-    {
-      title: "Install Smart Thermostat",
-      savings: 300,
-      cost: 250,
-    },
-    {
-      title: "Seal Air Leaks",
-      savings: 400,
-      cost: 800,
-    },
-  ],
-};
-
-const chartData = {
-  labels: ["Heating", "Cooling", "Water Heating", "Lighting", "Appliances"],
-  datasets: [
-    {
-      data: [40, 25, 15, 10, 10],
-      backgroundColor: ["#FF6384", "#36A2EB", "#FFCE56", "#4BC0C0", "#9966FF"],
-    },
-  ],
-};
-
-const chartOptions = {
-  responsive: true,
-  maintainAspectRatio: false,
-};
 
 const goBack = () => {
   logAnalyticsEvent("navigation", {

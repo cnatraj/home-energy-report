@@ -4,9 +4,12 @@ import { logAnalyticsEvent } from "../firebase";
 
 export const createProperty = async (addressDetails) => {
   try {
+    // Create initial property document with Google Maps data
     const docRef = await addDoc(collection(db, "properties"), {
-      ...addressDetails,
-      createdAt: new Date().toISOString(),
+      mapsData: {
+        ...addressDetails,
+        createdAt: new Date().toISOString(),
+      },
     });
 
     logAnalyticsEvent("generate_report", {
@@ -35,7 +38,7 @@ export const getProperty = async (id) => {
     if (docSnap.exists()) {
       logAnalyticsEvent("view_report", {
         report_id: id,
-        address: docSnap.data().address,
+        address: docSnap.data().mapsData.address,
       });
       return docSnap.data();
     } else {

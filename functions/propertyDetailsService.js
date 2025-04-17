@@ -1,42 +1,125 @@
-import { onRequest } from "firebase-functions/v2/https";
-import { defineString } from "firebase-functions/params";
+const { onRequest } = require("firebase-functions/v2/https");
+const { initializeApp } = require("firebase-admin/app");
+const { getFirestore } = require("firebase-admin/firestore");
+const { logger } = require("firebase-functions");
+const { DATAFINITI_API_KEY } = require("./configs/datafinitiConfig");
+const { addressAbbreviations } = require("./configs/addressAbbreviations");
 
-const DATAFINITI_API_KEY =
-  "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJmcXRqOWdyeHY3ajduYmtoMjU2eHcxbWgwOGVtcnJ2ZiIsImlzcyI6ImRhdGFmaW5pdGkuY28ifQ.AuU3Kpbv3zMGBuTBh9ADMAFclzeDmYbFSOGHJpv60hENctYmbYoIN_NsuvMIYUc2YEG0vNKzlKRwi4lxdq-onnAfLdmcYFyIyWK-N-7k54QNsbNgBvxTFp1kAdYbf5GRfDWAnjLzLcnqJG3T5Z-1QV5ddrEOQSpRDS3CQ92racd6MCCZofHa4OR8ajh2eqRSQZckk41iTeeP3-ZjvvSiDx1VKbuI5Z80qOLJJDn8cOjo97c4UQn8R7wehYFKW1C2Dn1Sh_zU1OxGa95-T6pt8lgOYBJNSTaiqwFA1Fk9BYuXrZBs08-506V5pyjh4xnBHXxHF6z7HIczjCGfEkvMttiuQn6_1pzhDAi0IT84nxCYFnTEM20Paku5e3-M6Ou60Iwv2SC4yiAtHI4ONo35Hm-tQzIWg1_HNdWuMr64fZBlj0fOfSFIPozXuThWTgvwx48xNuYLG_SyqNnoP7sSmT1oxjpNWJbCv96_ybzU1djTlyK0Iy0eGAAsXMYhq_48lYLKEqL_5EsXT57wqnZXpJsNsnv_6Q3jFEr31m5jVqB1u6DKGoem7mnvmBsXy6u-tGtJnbpwS6KskZrW_h9ykRtZKxreiwx5YXutpFhfRuF3wn19csYRVTscvjm1eV13JncUAcCbo2eO89czJ1ucPQ1GfXzMxl7aUglFJaC8-ss";
+// Initialize Firebase Admin
+initializeApp();
+const db = getFirestore();
 
-export const getPropertyData = onRequest(async (req, res) => {
+// Function to generate address variations
+const generateAddressVariations = (address) => {
+  const variations = [];
+
+  // First try: abbreviated lowercase version
+  let abbreviated = address.toLowerCase();
+  Object.entries(addressAbbreviations).forEach(([full, abbr]) => {
+    abbreviated = abbreviated.replace(new RegExp(`\\b${full}\\b`, "gi"), abbr);
+  });
+  variations.push(abbreviated);
+
+  // Second try: non-abbreviated lowercase version
+  variations.push(address.toLowerCase());
+
+  return [...new Set(variations)]; // Remove duplicates
+};
+
+// Function to try different address variations
+const tryAddressVariations = async (variations, city, state, zip) => {
+  // Append * to zip code
+  const formattedZip = `${zip}*`;
+
+  for (const addressVariation of variations) {
+    const query = {
+      query: `address:("${addressVariation}") AND city:("${city}") AND province:("${state}") AND postalCode:(${formattedZip})`,
+    };
+
+    logger.info("Trying Datafiniti query variation:", query);
+
+    try {
+      const response = await fetch(
+        "https://api.datafiniti.co/v4/properties/search",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${DATAFINITI_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(query),
+        }
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        logger.error("Datafiniti API error:", {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorText,
+        });
+        continue;
+      }
+
+      const data = await response.json();
+      if (data.records && data.records.length > 0) {
+        logger.info(
+          "Found matching property with address variation:",
+          addressVariation
+        );
+        return data;
+      }
+    } catch (error) {
+      logger.error("Error with address variation:", {
+        addressVariation,
+        error: error.message,
+      });
+    }
+  }
+  return null;
+};
+
+const getPropertyData = onRequest(async (req, res) => {
   try {
-    const { address, city, state, zip } = req.body;
+    const { propertyId, address, city, state, zip } = req.body;
 
-    if (!address || !city || !state || !zip) {
+    logger.info("Received request with parameters:", {
+      propertyId,
+      address,
+      city,
+      state,
+      zip,
+    });
+
+    if (!propertyId || !address || !city || !state || !zip) {
+      logger.error("Missing required parameters");
+      await db.collection("properties").doc(propertyId).update({
+        datafinitiFetchedAt: new Date().toISOString(),
+        datafinitiError: "Missing required parameters",
+      });
       return res.status(400).json({
-        error: "Missing required parameters: address, city, state, or zip",
+        error:
+          "Missing required parameters: propertyId, address, city, state, or zip",
       });
     }
 
-    const query = {
-      query: `address:("${address}") AND city:("${city}") AND province:("${state}") AND postalCode:(${zip})`,
-    };
+    // Generate address variations and try each one
+    const addressVariations = generateAddressVariations(address);
+    logger.info("Generated address variations:", addressVariations);
 
-    const response = await fetch(
-      "https://api.datafiniti.co/v4/properties/search",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${DATAFINITI_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(query),
-      }
+    const data = await tryAddressVariations(
+      addressVariations,
+      city,
+      state,
+      zip
     );
 
-    if (!response.ok) {
-      throw new Error(`Datafiniti API error: ${response.statusText}`);
-    }
-
-    const data = await response.json();
-
-    if (!data.records || data.records.length === 0) {
+    if (!data) {
+      logger.warn("No property data found for any address variation");
+      await db.collection("properties").doc(propertyId).update({
+        datafinitiFetchedAt: new Date().toISOString(),
+        datafinitiError: "No property data found for any address variation",
+      });
       return res.status(404).json({
         error: "No property data found",
       });
@@ -76,101 +159,128 @@ export const getPropertyData = onRequest(async (req, res) => {
         property.exteriorFeatures?.some((f) => f.toLowerCase().includes("pool"))
     );
 
-    const propertyData = {
-      address: property.address || null,
-      city: property.city || null,
-      state: property.province || null,
-      postalCode: property.postalCode || null,
-      latitude: parseFloat(property.latitude) || null,
-      longitude: parseFloat(property.longitude) || null,
-      yearBuilt: property.yearBuilt || null,
-      floorSizeSqFt: property.floorSizeValue || null,
-      lotSizeSqFt: property.lotSizeValue || null,
-      numFloors: property.numFloor || null,
-      numBedrooms: property.numBedroom || null,
-      numBathrooms: property.numBathroom || null,
-      cooling: cooling || null,
-      heating: heating || null,
-      hasPool,
-      poolType: poolType,
-      construction:
-        property.exteriorFeatures
-          ?.find((f) => f.includes("Construction:"))
-          ?.replace("Construction: ", "") || null,
-      roofType: property.roofing?.[0] || null,
-      windows: "Unknown",
-      appliances: property.appliances || [],
-      assessedValue: assessedValues.totalAmount || null,
-      assessedLandValue: assessedValues.landAmount || null,
-      assessedImprovementValue: assessedValues.improvementsAmount || null,
-      estimatedHomeValue: property.mostRecentEstimatedPriceAmount || null,
-      estimatedRent:
-        getFeatureValue("Redfin Rental Estimate")?.replace(" / month", "") ||
-        null,
-      hoaFee: property.fees?.[0]?.amountMax || null,
-      solarInstalled: Boolean(
-        property.features?.some((f) => f.value?.includes("Solar"))
-      ),
-      garageSpaces: parseInt(getFeatureValue("Garage Parking Spaces")) || null,
-      nonGarageSpaces:
-        parseInt(getFeatureValue("Non-Garage Parking Spaces")) || null,
-      totalParkingSpaces: property.numParkingSpaces || null,
-      propertyUse: property.propertyType || null,
-      zoning: property.zoning || null,
-      hasFireplace: Boolean(
-        property.features?.some(
-          (f) => f.key === "Fireplace" && f.value.includes("Yes")
-        )
-      ),
-      hasLaundry: Boolean(
-        property.features?.some(
-          (f) => f.key === "Laundry" && !f.value.includes("None")
-        )
-      ),
-      hasAirConditioning: Boolean(cooling),
-      hasHeating: Boolean(heating),
-      neighborhood: property.neighborhoods?.[0] || null,
-      county: property.county || null,
-      jobMarketWhiteCollarPercent:
-        parseFloat(getFeatureValue("Graduate Degree Percentile")) || null,
-      unemploymentRate:
-        parseFloat(getFeatureValue("Unemployment Rate")?.replace("%", "")) ||
-        null,
-      medianIncome:
-        parseInt(
-          getFeatureValue("Median Family Income")
-            ?.replace("$", "")
-            .replace(",", "")
-        ) || null,
-      householdsWithChildrenPercent:
-        parseFloat(
-          getFeatureValue("Households with Children")?.replace("%", "")
-        ) || null,
-      medianHomeownerAge:
-        parseFloat(getFeatureValue("Median Homeowner Age")) || null,
-      floodRisk:
-        property.features
-          ?.find((f) => f.value?.includes("flood risk"))
-          ?.value[0]?.match(/low|medium|high/i)?.[0]
-          ?.toLowerCase() || null,
-      earthquakeRisk:
-        property.features
-          ?.find((f) => f.value?.includes("earthquake risk"))
-          ?.value[0]?.match(/low|medium|high/i)?.[0]
-          ?.toLowerCase() || null,
-      tornadoRisk:
-        property.features
-          ?.find((f) => f.value?.includes("tornado risk"))
-          ?.value[0]?.match(/low|medium|high/i)?.[0]
-          ?.toLowerCase() || null,
+    const propertyDetails = {
+      propertyData: {
+        address: property.address || null,
+        city: property.city || null,
+        state: property.province || null,
+        postalCode: property.postalCode || null,
+        latitude: parseFloat(property.latitude) || null,
+        longitude: parseFloat(property.longitude) || null,
+        yearBuilt: property.yearBuilt || null,
+        floorSizeSqFt: property.floorSizeValue || null,
+        lotSizeSqFt: property.lotSizeValue || null,
+        numFloors: property.numFloor || null,
+        numBedrooms: property.numBedroom || null,
+        numBathrooms: property.numBathroom || null,
+        cooling: cooling || null,
+        heating: heating || null,
+        hasPool,
+        poolType: poolType,
+        construction:
+          property.exteriorFeatures
+            ?.find((f) => f.includes("Construction:"))
+            ?.replace("Construction: ", "") || null,
+        roofType: property.roofing?.[0] || null,
+        windows: "Unknown",
+        appliances: property.appliances || [],
+        assessedValue: assessedValues.totalAmount || null,
+        assessedLandValue: assessedValues.landAmount || null,
+        assessedImprovementValue: assessedValues.improvementsAmount || null,
+        estimatedHomeValue: property.mostRecentEstimatedPriceAmount || null,
+        estimatedRent:
+          getFeatureValue("Redfin Rental Estimate")?.replace(" / month", "") ||
+          null,
+        hoaFee: property.fees?.[0]?.amountMax || null,
+        solarInstalled: Boolean(
+          property.features?.some((f) => f.value?.includes("Solar"))
+        ),
+        garageSpaces:
+          parseInt(getFeatureValue("Garage Parking Spaces")) || null,
+        nonGarageSpaces:
+          parseInt(getFeatureValue("Non-Garage Parking Spaces")) || null,
+        totalParkingSpaces: property.numParkingSpaces || null,
+        propertyUse: property.propertyType || null,
+        zoning: property.zoning || null,
+        hasFireplace: Boolean(
+          property.features?.some(
+            (f) => f.key === "Fireplace" && f.value.includes("Yes")
+          )
+        ),
+        hasLaundry: Boolean(
+          property.features?.some(
+            (f) => f.key === "Laundry" && !f.value.includes("None")
+          )
+        ),
+        hasAirConditioning: Boolean(cooling),
+        hasHeating: Boolean(heating),
+      },
+      neighborhoodData: {
+        neighborhood: property.neighborhoods?.[0] || null,
+        county: property.county || null,
+        jobMarketWhiteCollarPercent:
+          parseFloat(getFeatureValue("Graduate Degree Percentile")) || null,
+        unemploymentRate:
+          parseFloat(getFeatureValue("Unemployment Rate")?.replace("%", "")) ||
+          null,
+        medianIncome:
+          parseInt(
+            getFeatureValue("Median Family Income")
+              ?.replace("$", "")
+              .replace(",", "")
+          ) || null,
+        householdsWithChildrenPercent:
+          parseFloat(
+            getFeatureValue("Households with Children")?.replace("%", "")
+          ) || null,
+        medianHomeownerAge:
+          parseFloat(getFeatureValue("Median Homeowner Age")) || null,
+      },
+      riskData: {
+        floodRisk:
+          property.features
+            ?.find((f) => f.value?.includes("flood risk"))
+            ?.value[0]?.match(/low|medium|high/i)?.[0]
+            ?.toLowerCase() || null,
+        earthquakeRisk:
+          property.features
+            ?.find((f) => f.value?.includes("earthquake risk"))
+            ?.value[0]?.match(/low|medium|high/i)?.[0]
+            ?.toLowerCase() || null,
+        tornadoRisk:
+          property.features
+            ?.find((f) => f.value?.includes("tornado risk"))
+            ?.value[0]?.match(/low|medium|high/i)?.[0]
+            ?.toLowerCase() || null,
+      },
+      datafinitiFetchedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
 
-    return res.status(200).json(propertyData);
+    logger.info("Updating Firestore with property details");
+
+    // Update the Firestore document
+    await db.collection("properties").doc(propertyId).update(propertyDetails);
+
+    logger.info("Successfully updated property data");
+
+    return res.status(200).json({
+      message: "Property data updated successfully",
+      propertyId,
+    });
   } catch (error) {
-    console.error("Error fetching property data:", error);
+    logger.error("Error processing property data:", error);
+    await db.collection("properties").doc(propertyId).update({
+      datafinitiFetchedAt: new Date().toISOString(),
+      datafinitiError: error.message,
+    });
     return res.status(500).json({
-      error: "Failed to fetch property data",
+      error: "Failed to process property data",
       details: error.message,
     });
   }
 });
+
+module.exports = {
+  getPropertyData,
+};
