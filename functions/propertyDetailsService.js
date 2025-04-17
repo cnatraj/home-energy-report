@@ -66,6 +66,16 @@ export const getPropertyData = onRequest(async (req, res) => {
     const poolType =
       poolFeatures.length > 0 ? poolFeatures[0].value.join(", ") : null;
 
+    // Improved pool detection logic
+    const hasPool = Boolean(
+      property.features?.some(
+        (f) =>
+          (f.key === "Pool" && f.value.includes("Yes")) ||
+          (f.key === "Pool Information" && f.value.length > 0)
+      ) ||
+        property.exteriorFeatures?.some((f) => f.toLowerCase().includes("pool"))
+    );
+
     const propertyData = {
       address: property.address || null,
       city: property.city || null,
@@ -81,11 +91,7 @@ export const getPropertyData = onRequest(async (req, res) => {
       numBathrooms: property.numBathroom || null,
       cooling: cooling || null,
       heating: heating || null,
-      hasPool: Boolean(
-        property.features?.some(
-          (f) => f.key === "Pool" && f.value.includes("Yes")
-        )
-      ),
+      hasPool,
       poolType: poolType,
       construction:
         property.exteriorFeatures
