@@ -31,23 +31,10 @@ jobs:
         env:
           VITE_GOOGLE_MAPS_API_KEY: ${{ secrets.VITE_GOOGLE_MAPS_API_KEY }}
 
-      - name: Install Firebase CLI
-        run: npm install -g firebase-tools
-
-      - name: Deploy to Firebase Hosting
-        env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-        run: |
-          if [ -f /tmp/service-account.json ]; then
-            rm /tmp/service-account.json
-          fi
-          echo "$FIREBASE_SERVICE_ACCOUNT" > /tmp/service-account.json
-          export GOOGLE_APPLICATION_CREDENTIALS=/tmp/service-account.json
-          firebase deploy --only hosting --project home-energy-report-ba33d
-
-      - name: Cleanup
-        if: always()
-        run: |
-          if [ -f /tmp/service-account.json ]; then
-            rm /tmp/service-account.json
-          fi
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: "${{ secrets.GITHUB_TOKEN }}"
+          firebaseServiceAccount: "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}"
+          channelId: live
+          projectId: home-energy-report-ba33d
+          entryPoint: ./
