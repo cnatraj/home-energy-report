@@ -35,7 +35,7 @@ export const getPropertyData = onRequest(async (req, res) => {
     );
 
     if (!response.ok) {
-      throw new Error(`Datafiniti API error: ${response.statusText}`);
+      throw new Error(`Datafiniti API errors: ${response.statusText}`);
     }
 
     const data = await response.json();
