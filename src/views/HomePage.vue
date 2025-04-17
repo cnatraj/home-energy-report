@@ -42,8 +42,6 @@ const autocomplete = ref(null);
 
 const GOOGLE_MAPS_API_KEY = "AIzaSyAboRb-Oh6fEdxL2WaTIkK5fc0e3ADLxnQ";
 
-console.log("in here");
-
 onMounted(() => {
   logAnalyticsEvent("page_view", {
     page_title: "Home",
