@@ -10,6 +10,7 @@ on:
       - "index.html"
       - "package.json"
       - "vite.config.js"
+      - "firebase.json"
 
 jobs:
   deploy_hosting:
@@ -27,6 +28,8 @@ jobs:
 
       - name: Build Web App
         run: npm run build
+        env:
+          VITE_GOOGLE_MAPS_API_KEY: ${{ secrets.VITE_GOOGLE_MAPS_API_KEY }}
 
       - name: Install Firebase CLI
         run: npm install -g firebase-tools
@@ -35,10 +38,16 @@ jobs:
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: |
+          if [ -f /tmp/service-account.json ]; then
+            rm /tmp/service-account.json
+          fi
           echo "$FIREBASE_SERVICE_ACCOUNT" > /tmp/service-account.json
           export GOOGLE_APPLICATION_CREDENTIALS=/tmp/service-account.json
-          firebase deploy --only hosting --project home-energy-report-ba33d --non-interactive
+          firebase deploy --only hosting --project home-energy-report-ba33d
 
       - name: Cleanup
         if: always()
-        run: rm -f /tmp/service-account.json
+        run: |
+          if [ -f /tmp/service-account.json ]; then
+            rm /tmp/service-account.json
+          fi
