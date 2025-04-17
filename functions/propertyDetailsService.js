@@ -31,7 +31,7 @@ export const getPropertyData = onRequest(async (req, res) => {
     );
 
     if (!response.ok) {
-      throw new Error(`Datafiniti API errors: ${response.statusText}`);
+      throw new Error(`Datafiniti API error: ${response.statusText}`);
     }
 
     const data = await response.json();
@@ -44,7 +44,120 @@ export const getPropertyData = onRequest(async (req, res) => {
 
     // Extract relevant property data
     const property = data.records[0];
-    const propertyData = property;
+
+    // Find the most recent assessed values
+    const assessedValues = property.assessedValues?.[0] || {};
+
+    // Extract features
+    const features = property.features || [];
+    const getFeatureValue = (key) => {
+      const feature = features.find((f) => f.key === key);
+      return feature ? feature.value[0] : null;
+    };
+
+    // Extract HVAC information
+    const hvacTypes = property.hvacTypes || [];
+    const cooling = hvacTypes.find((type) => type.includes("Central")) || null;
+    const heating =
+      hvacTypes.find((type) => type.includes("Forced Air")) || null;
+
+    // Extract pool information
+    const poolFeatures = features.filter((f) => f.key === "Pool Information");
+    const poolType =
+      poolFeatures.length > 0 ? poolFeatures[0].value.join(", ") : null;
+
+    const propertyData = {
+      address: property.address || null,
+      city: property.city || null,
+      state: property.province || null,
+      postalCode: property.postalCode || null,
+      latitude: parseFloat(property.latitude) || null,
+      longitude: parseFloat(property.longitude) || null,
+      yearBuilt: property.yearBuilt || null,
+      floorSizeSqFt: property.floorSizeValue || null,
+      lotSizeSqFt: property.lotSizeValue || null,
+      numFloors: property.numFloor || null,
+      numBedrooms: property.numBedroom || null,
+      numBathrooms: property.numBathroom || null,
+      cooling: cooling || null,
+      heating: heating || null,
+      hasPool: Boolean(
+        property.features?.some(
+          (f) => f.key === "Pool" && f.value.includes("Yes")
+        )
+      ),
+      poolType: poolType,
+      construction:
+        property.exteriorFeatures
+          ?.find((f) => f.includes("Construction:"))
+          ?.replace("Construction: ", "") || null,
+      roofType: property.roofing?.[0] || null,
+      windows: "Unknown",
+      appliances: property.appliances || [],
+      assessedValue: assessedValues.totalAmount || null,
+      assessedLandValue: assessedValues.landAmount || null,
+      assessedImprovementValue: assessedValues.improvementsAmount || null,
+      estimatedHomeValue: property.mostRecentEstimatedPriceAmount || null,
+      estimatedRent:
+        getFeatureValue("Redfin Rental Estimate")?.replace(" / month", "") ||
+        null,
+      hoaFee: property.fees?.[0]?.amountMax || null,
+      solarInstalled: Boolean(
+        property.features?.some((f) => f.value?.includes("Solar"))
+      ),
+      garageSpaces: parseInt(getFeatureValue("Garage Parking Spaces")) || null,
+      nonGarageSpaces:
+        parseInt(getFeatureValue("Non-Garage Parking Spaces")) || null,
+      totalParkingSpaces: property.numParkingSpaces || null,
+      propertyUse: property.propertyType || null,
+      zoning: property.zoning || null,
+      hasFireplace: Boolean(
+        property.features?.some(
+          (f) => f.key === "Fireplace" && f.value.includes("Yes")
+        )
+      ),
+      hasLaundry: Boolean(
+        property.features?.some(
+          (f) => f.key === "Laundry" && !f.value.includes("None")
+        )
+      ),
+      hasAirConditioning: Boolean(cooling),
+      hasHeating: Boolean(heating),
+      neighborhood: property.neighborhoods?.[0] || null,
+      county: property.county || null,
+      jobMarketWhiteCollarPercent:
+        parseFloat(getFeatureValue("Graduate Degree Percentile")) || null,
+      unemploymentRate:
+        parseFloat(getFeatureValue("Unemployment Rate")?.replace("%", "")) ||
+        null,
+      medianIncome:
+        parseInt(
+          getFeatureValue("Median Family Income")
+            ?.replace("$", "")
+            .replace(",", "")
+        ) || null,
+      householdsWithChildrenPercent:
+        parseFloat(
+          getFeatureValue("Households with Children")?.replace("%", "")
+        ) || null,
+      medianHomeownerAge:
+        parseFloat(getFeatureValue("Median Homeowner Age")) || null,
+      floodRisk:
+        property.features
+          ?.find((f) => f.value?.includes("flood risk"))
+          ?.value[0]?.match(/low|medium|high/i)?.[0]
+          ?.toLowerCase() || null,
+      earthquakeRisk:
+        property.features
+          ?.find((f) => f.value?.includes("earthquake risk"))
+          ?.value[0]?.match(/low|medium|high/i)?.[0]
+          ?.toLowerCase() || null,
+      tornadoRisk:
+        property.features
+          ?.find((f) => f.value?.includes("tornado risk"))
+          ?.value[0]?.match(/low|medium|high/i)?.[0]
+          ?.toLowerCase() || null,
+    };
 
     return res.status(200).json(propertyData);
   } catch (error) {
