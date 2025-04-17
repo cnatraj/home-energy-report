@@ -4,6 +4,7 @@ const { getFirestore } = require("firebase-admin/firestore");
 const { logger } = require("firebase-functions");
 const { DATAFINITI_API_KEY } = require("./configs/datafinitiConfig");
 const { addressAbbreviations } = require("./configs/addressAbbreviations");
+const { SYSTEM_AGES } = require("./configs/constants");
 
 // Initialize Firebase Admin
 initializeApp();
@@ -24,6 +25,23 @@ const generateAddressVariations = (address) => {
   variations.push(address.toLowerCase());
 
   return [...new Set(variations)]; // Remove duplicates
+};
+
+// Function to calculate HVAC installation year
+const calculateHvacInstallationYear = (yearBuilt) => {
+  const currentYear = new Date().getFullYear();
+  const buildingAge = currentYear - yearBuilt;
+
+  // If building is newer than HVAC average age, HVAC was installed when built
+  if (buildingAge <= SYSTEM_AGES.HVAC) {
+    return yearBuilt;
+  }
+
+  // Calculate the number of complete HVAC lifecycles since the building was built
+  const completeCycles = Math.floor(buildingAge / SYSTEM_AGES.HVAC);
+
+  // The last installation would have been after these complete cycles
+  return yearBuilt + completeCycles * SYSTEM_AGES.HVAC;
 };
 
 // Function to try different address variations
@@ -159,6 +177,12 @@ const getPropertyData = onRequest(async (req, res) => {
         property.exteriorFeatures?.some((f) => f.toLowerCase().includes("pool"))
     );
 
+    // Calculate HVAC installation year if year built is available
+    const yearBuilt = property.yearBuilt;
+    const hvacInstalled = yearBuilt
+      ? calculateHvacInstallationYear(parseInt(yearBuilt))
+      : null;
+
     const propertyDetails = {
       propertyData: {
         address: property.address || null,
@@ -167,7 +191,8 @@ const getPropertyData = onRequest(async (req, res) => {
         postalCode: property.postalCode || null,
         latitude: parseFloat(property.latitude) || null,
         longitude: parseFloat(property.longitude) || null,
-        yearBuilt: property.yearBuilt || null,
+        yearBuilt: yearBuilt || null,
+        hvacInstalled,
         floorSizeSqFt: property.floorSizeValue || null,
         lotSizeSqFt: property.lotSizeValue || null,
         numFloors: property.numFloor || null,
