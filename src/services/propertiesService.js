@@ -1,5 +1,5 @@
 import { db } from "../firebase";
-import { collection, addDoc, doc, getDoc } from "firebase/firestore";
+import { collection, addDoc, doc, getDoc, updateDoc } from "firebase/firestore";
 import { logAnalyticsEvent } from "../firebase";
 
 export const createProperty = async (addressDetails) => {
@@ -52,6 +52,31 @@ export const getProperty = async (id) => {
     console.error("Error fetching document:", error);
     logAnalyticsEvent("error", {
       error_type: "document_fetch_failed",
+      error_message: error.message,
+      report_id: id,
+    });
+    throw error;
+  }
+};
+
+export const updatePropertyData = async (id, updates) => {
+  try {
+    const docRef = doc(db, "properties", id);
+    await updateDoc(docRef, {
+      propertyData: {
+        ...updates,
+        updatedAt: new Date().toISOString(),
+      },
+    });
+
+    logAnalyticsEvent("update_property", {
+      report_id: id,
+      updated_fields: Object.keys(updates),
+    });
+  } catch (error) {
+    console.error("Error updating document:", error);
+    logAnalyticsEvent("error", {
+      error_type: "document_update_failed",
       error_message: error.message,
       report_id: id,
     });

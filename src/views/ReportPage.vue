@@ -1,16 +1,25 @@
 <script setup>
-import { ref, onMounted } from "vue";
+import { ref, onMounted, watch, computed } from "vue";
 import { useRouter } from "vue-router";
-import { getProperty } from "../services/propertiesService";
+import { getProperty, updatePropertyData } from "../services/propertiesService";
 import { logAnalyticsEvent } from "../firebase";
 import { ENERGY_USAGE } from "../utils/constants";
-import { createEstimatedAnnualUsage } from "../utils/estimatedAnnualUsage";
+import MonthlyUsageChart from "../components/MonthlyUsageChart.vue";
+import EstimatedAnnualUsage from "../components/EstimatedAnnualUsage.vue";
 
 const router = useRouter();
 const property = ref(null);
 const loading = ref(true);
 const error = ref(null);
 const occupants = ref(ENERGY_USAGE.defaultOccupants);
+
+// Editable property fields
+const heating = ref("");
+const cooling = ref("");
+const constructionType = ref("");
+const roofType = ref("");
+const solarInstalled = ref(false);
+const hasPool = ref(false);
 
 const props = defineProps({
   id: {
@@ -19,9 +28,94 @@ const props = defineProps({
   },
 });
 
-const estimatedAnnualUsage = createEstimatedAnnualUsage(property, occupants);
+// Initialize editable fields when property data is loaded
+watch(
+  () => property.value?.propertyData,
+  (newData) => {
+    if (newData) {
+      heating.value = newData.heating || "";
+      cooling.value = newData.cooling || "";
+      constructionType.value = newData.construction || "";
+      roofType.value = newData.roofType || "";
+      solarInstalled.value = newData.solarInstalled || false;
+      hasPool.value = newData.hasPool || false;
+    }
+  },
+  { immediate: true }
+);
 
-console.log("Estimated Annual Usage:", estimatedAnnualUsage.value);
+// Update property data and Firestore when fields change
+const updateField = async (field, value) => {
+  if (!property.value?.propertyData) return;
+
+  // Update local state immediately
+  property.value.propertyData[field] = value;
+
+  // Update Firestore asynchronously
+  try {
+    await updatePropertyData(props.id, {
+      ...property.value.propertyData,
+      [field]: value,
+    });
+  } catch (error) {
+    console.error(`Error updating ${field}:`, error);
+  }
+};
+
+// Watch for changes in editable fields
+watch(heating, (newValue) => updateField("heating", newValue));
+watch(cooling, (newValue) => updateField("cooling", newValue));
+watch(constructionType, (newValue) => updateField("construction", newValue));
+watch(roofType, (newValue) => updateField("roofType", newValue));
+watch(solarInstalled, (newValue) => updateField("solarInstalled", newValue));
+watch(hasPool, (newValue) => updateField("hasPool", newValue));
+
+const estimatedAnnualUsage = computed(() => {
+  if (!property.value?.propertyData?.floorSizeSqFt) {
+    return "N/A";
+  }
+
+  const propertyData = property.value.propertyData;
+  let usage = propertyData.floorSizeSqFt * ENERGY_USAGE.baseConsumptionRate;
+
+  // Adjust for occupancy
+  usage =
+    usage * (1 + (occupants.value - 1) * ENERGY_USAGE.occupancyAdjustmentRate);
+
+  // Adjust for solar if installed
+  if (propertyData.solarInstalled) {
+    usage = usage * (1 - ENERGY_USAGE.solarReductionRate);
+  }
+
+  // Adjust for pool if present
+  if (propertyData.hasPool) {
+    usage = usage * ENERGY_USAGE.poolPumpUsage;
+  }
+
+  // Add appliance usage
+  if (propertyData.appliances) {
+    propertyData.appliances.forEach((appliance) => {
+      const applianceLower = appliance.toLowerCase();
+      if (ENERGY_USAGE.appliances[applianceLower]) {
+        usage += ENERGY_USAGE.appliances[applianceLower];
+      }
+    });
+  }
+
+  // Adjust for HVAC efficiency based on year built
+  if (propertyData.yearBuilt) {
+    const year = parseInt(propertyData.yearBuilt);
+    if (year >= 2010) {
+      usage *= ENERGY_USAGE.hvacEfficiency.modern;
+    } else if (year >= 1990) {
+      usage *= ENERGY_USAGE.hvacEfficiency.standard;
+    } else {
+      usage *= ENERGY_USAGE.hvacEfficiency.older;
+    }
+  }
+
+  return `${Math.round(usage).toLocaleString()} kWh`;
+});
 
 const fetchDatafinitiData = async () => {
   const response = await fetch(
@@ -186,10 +280,7 @@ const goBack = () => {
                 {{ property.propertyData?.totalParkingSpaces || "N/A" }}
               </div>
             </v-col>
-            <v-col cols="12" sm="6" md="3">
-              <div class="text-subtitle-1">Est. Annual Usage</div>
-              <div class="text-h6">{{ estimatedAnnualUsage }}</div>
-            </v-col>
+            <v-col cols="12" sm="6" md="3"> </v-col>
           </v-row>
         </v-card-text>
 
@@ -266,12 +357,22 @@ const goBack = () => {
               <v-card variant="outlined" class="h-100">
                 <v-card-title>Heating & Cooling</v-card-title>
                 <v-card-text>
-                  <div>
-                    Heating: {{ property.propertyData?.heating || "N/A" }}
-                  </div>
-                  <div>
-                    Cooling: {{ property.propertyData?.cooling || "N/A" }}
-                  </div>
+                  <v-select
+                    v-model="heating"
+                    :items="ENERGY_USAGE.heatingTypes"
+                    label="Heating System"
+                    variant="outlined"
+                    density="compact"
+                    class="mb-2"
+                  />
+                  <v-select
+                    v-model="cooling"
+                    :items="ENERGY_USAGE.coolingTypes"
+                    label="Cooling System"
+                    variant="outlined"
+                    density="compact"
+                    class="mb-2"
+                  />
                   <div>
                     HVAC Installed:
                     {{ property.propertyData?.hvacInstalled || "N/A" }}
@@ -283,12 +384,21 @@ const goBack = () => {
               <v-card variant="outlined" class="h-100">
                 <v-card-title>Construction</v-card-title>
                 <v-card-text>
-                  <div>
-                    Type: {{ property.propertyData?.construction || "N/A" }}
-                  </div>
-                  <div>
-                    Roof: {{ property.propertyData?.roofType || "N/A" }}
-                  </div>
+                  <v-select
+                    v-model="constructionType"
+                    :items="ENERGY_USAGE.constructionTypes"
+                    label="Construction Type"
+                    variant="outlined"
+                    density="compact"
+                    class="mb-2"
+                  />
+                  <v-select
+                    v-model="roofType"
+                    :items="ENERGY_USAGE.roofTypes"
+                    label="Roof Type"
+                    variant="outlined"
+                    density="compact"
+                  />
                 </v-card-text>
               </v-card>
             </v-col>
@@ -296,13 +406,13 @@ const goBack = () => {
               <v-card variant="outlined" class="h-100">
                 <v-card-title>Additional Features</v-card-title>
                 <v-card-text>
-                  <div>
-                    Solar Installed:
-                    {{ property.propertyData?.solarInstalled ? "Yes" : "No" }}
-                  </div>
-                  <div>
-                    Pool: {{ property.propertyData?.hasPool ? "Yes" : "No" }}
-                  </div>
+                  <v-switch
+                    v-model="solarInstalled"
+                    label="Solar Installed"
+                    color="success"
+                    class="mb-2"
+                  />
+                  <v-switch v-model="hasPool" label="Pool" color="success" />
                 </v-card-text>
               </v-card>
             </v-col>
@@ -320,6 +430,23 @@ const goBack = () => {
             thumb-label
             label="Number of Occupants"
           ></v-slider>
+        </v-card-text>
+
+        <!-- Estimated Annual Usage -->
+        <v-card-text>
+          <h2 class="text-h5 mb-4">Estimated Annual Usage</h2>
+          <div class="text-h6">
+            <EstimatedAnnualUsage
+              :property-data="property.propertyData"
+              :occupants="occupants"
+            />
+          </div>
+        </v-card-text>
+
+        <!-- Monthly Usage Breakdown -->
+        <v-card-text v-if="property">
+          <h2 class="text-h5 mb-4">Monthly Usage Breakdown</h2>
+          <MonthlyUsageChart :annual-usage="estimatedAnnualUsage" />
         </v-card-text>
       </template>
 
